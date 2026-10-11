@@ -70,6 +70,7 @@ export class AbstractPointerSensor implements SensorInstance {
   private document: Document;
   private activated: boolean = false;
   private initialCoordinates: Coordinates;
+  private lastCoordinates: Coordinates;
   private timeoutId: NodeJS.Timeout | null = null;
   private listeners: Listeners;
   private documentListeners: Listeners;
@@ -90,6 +91,7 @@ export class AbstractPointerSensor implements SensorInstance {
     this.listeners = new Listeners(listenerTarget);
     this.windowListeners = new Listeners(getWindow(target));
     this.initialCoordinates = getEventCoordinates(event) ?? defaultCoordinates;
+    this.lastCoordinates = this.initialCoordinates;
     this.handleStart = this.handleStart.bind(this);
     this.handleMove = this.handleMove.bind(this);
     this.handleEnd = this.handleEnd.bind(this);
@@ -240,13 +242,30 @@ export class AbstractPointerSensor implements SensorInstance {
       event.preventDefault();
     }
 
+    this.lastCoordinates = coordinates;
     onMove(coordinates);
   }
 
-  private handleEnd() {
-    const {onAbort, onEnd} = this.props;
+  private handleEnd(event?: Event) {
+    const {onAbort, onEnd, onMove} = this.props;
 
     this.detach();
+
+    // The end event (`pointerup` / `touchend`) carries the final coordinates of
+    // the pointer. Deliver them before ending so that the drop target is
+    // resolved from where the pointer actually was when it was released.
+    const coordinates =
+      this.activated && event ? getEventCoordinates(event) : null;
+
+    if (
+      coordinates &&
+      (coordinates.x !== this.lastCoordinates.x ||
+        coordinates.y !== this.lastCoordinates.y)
+    ) {
+      this.lastCoordinates = coordinates;
+      onMove(coordinates);
+    }
+
     if (!this.activated) {
       onAbort(this.props.active);
     }

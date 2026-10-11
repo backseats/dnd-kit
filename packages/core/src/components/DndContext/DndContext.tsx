@@ -62,7 +62,9 @@ import {
   rectIntersection,
 } from '../../utilities';
 import {applyModifiers, Modifiers} from '../../modifiers';
+import type {Collision} from '../../utilities/algorithms';
 import type {Active, Over} from '../../store/types';
+
 import type {
   DragStartEvent,
   DragCancelEvent,
@@ -72,6 +74,7 @@ import type {
   UniqueIdentifier,
   DragPendingEvent,
   DragAbortEvent,
+  Coordinates,
 } from '../../types';
 import {
   Accessibility,
@@ -129,6 +132,13 @@ export const ActiveDraggableContext = createContext<Transform>({
   scaleY: 1,
 });
 
+interface DropState {
+  active: Active;
+  collisions: Collision[] | null;
+  delta: Coordinates;
+  over: Over | null;
+}
+
 enum Status {
   Uninitialized,
   Initializing,
@@ -174,6 +184,14 @@ export const DndContext = memo(function DndContext({
     [activeId, node]
   );
   const activeRef = useRef<UniqueIdentifier | null>(null);
+  // Latest coordinates delivered by the active sensor, and the coordinates the
+  // drag started from. These are updated synchronously (not through React
+  // state), so that the drop target can be resolved from the freshest input.
+  const initialCoordinatesRef = useRef<Coordinates | null>(null);
+  const latestCoordinatesRef = useRef<Coordinates | null>(null);
+  const resolveDropStateRef = useRef<
+    ((coordinates: Coordinates) => DropState | null) | null
+  >(null);
   const [activeSensor, setActiveSensor] = useState<SensorInstance | null>(null);
   const [activatorEvent, setActivatorEvent] = useState<Event | null>(null);
   const latestProps = useLatestValue(props, Object.values(props));
@@ -261,24 +279,26 @@ export const DndContext = memo(function DndContext({
   const scrollableAncestorRects = useRects(scrollableAncestors);
 
   // Apply modifiers
-  const modifiedTranslate = applyModifiers(modifiers, {
-    transform: {
-      x: translate.x - nodeRectDelta.x,
-      y: translate.y - nodeRectDelta.y,
-      scaleX: 1,
-      scaleY: 1,
-    },
-    activatorEvent,
-    active,
-    activeNodeRect,
-    containerNodeRect,
-    draggingNodeRect,
-    over: sensorContext.current.over,
-    overlayNodeRect: dragOverlay.rect,
-    scrollableAncestors,
-    scrollableAncestorRects,
-    windowRect,
-  });
+  const getModifiedTranslate = (translate: Coordinates) =>
+    applyModifiers(modifiers, {
+      transform: {
+        x: translate.x - nodeRectDelta.x,
+        y: translate.y - nodeRectDelta.y,
+        scaleX: 1,
+        scaleY: 1,
+      },
+      activatorEvent,
+      active,
+      activeNodeRect,
+      containerNodeRect,
+      draggingNodeRect,
+      over: sensorContext.current.over,
+      overlayNodeRect: dragOverlay.rect,
+      scrollableAncestors,
+      scrollableAncestorRects,
+      windowRect,
+    });
+  const modifiedTranslate = getModifiedTranslate(translate);
 
   const pointerCoordinates = activationCoordinates
     ? add(activationCoordinates, translate)
@@ -310,6 +330,54 @@ export const DndContext = memo(function DndContext({
       : null;
   const overId = getFirstCollision(collisions, 'id');
   const [over, setOver] = useState<Over | null>(null);
+
+  /**
+   * Resolves the collisions, `over` and delta for the given (final) sensor
+   * coordinates synchronously, using the most recently committed measurements.
+   * This does not depend on React having rendered the latest pointer move.
+   */
+  const resolveDropState = (coordinates: Coordinates): DropState | null => {
+    const initialCoordinates = initialCoordinatesRef.current;
+
+    if (
+      !active ||
+      !draggingNodeRect ||
+      !activationCoordinates ||
+      !initialCoordinates
+    ) {
+      return null;
+    }
+
+    const finalTranslate = {
+      x: coordinates.x - initialCoordinates.x,
+      y: coordinates.y - initialCoordinates.y,
+    };
+    const finalModifiedTranslate = getModifiedTranslate(finalTranslate);
+    const finalCollisions = collisionDetection({
+      active,
+      collisionRect: getAdjustedRect(draggingNodeRect, finalModifiedTranslate),
+      droppableRects,
+      droppableContainers: enabledDroppableContainers,
+      pointerCoordinates: add(activationCoordinates, finalTranslate),
+    });
+    const finalOverId = getFirstCollision(finalCollisions, 'id');
+    const overContainer = droppableContainers.get(finalOverId);
+
+    return {
+      active,
+      collisions: finalCollisions,
+      delta: add(finalModifiedTranslate, scrollAdjustment),
+      over:
+        overContainer && overContainer.rect.current
+          ? {
+              id: overContainer.id,
+              rect: overContainer.rect.current,
+              data: overContainer.data,
+              disabled: overContainer.disabled,
+            }
+          : null,
+    };
+  };
 
   // When there is no drag overlay used, we need to account for the
   // window scroll delta
@@ -398,6 +466,9 @@ export const DndContext = memo(function DndContext({
             active: {id, data: draggableNode.data, rect: activeRects},
           };
 
+          initialCoordinatesRef.current = initialCoordinates;
+          latestCoordinatesRef.current = initialCoordinates;
+
           unstable_batchedUpdates(() => {
             onDragStart?.(event);
             setStatus(Status.Initializing);
@@ -412,6 +483,7 @@ export const DndContext = memo(function DndContext({
           });
         },
         onMove(coordinates) {
+          latestCoordinatesRef.current = coordinates;
           dispatch({
             type: Action.DragMove,
             coordinates,
@@ -425,9 +497,20 @@ export const DndContext = memo(function DndContext({
 
       function createHandler(type: Action.DragEnd | Action.DragCancel) {
         return async function handler() {
-          const {active, collisions, over, scrollAdjustedTranslate} =
-            sensorContext.current;
+          const latestCoordinates = latestCoordinatesRef.current;
+          // Resolve the drop target from the latest coordinates delivered by
+          // the sensor, rather than from the last committed React state.
+          const resolved =
+            latestCoordinates && resolveDropStateRef.current
+              ? resolveDropStateRef.current(latestCoordinates)
+              : null;
+          const {active, collisions, over, scrollAdjustedTranslate} = resolved
+            ? {...resolved, scrollAdjustedTranslate: resolved.delta}
+            : sensorContext.current;
           let event: DragEndEvent | null = null;
+
+          initialCoordinatesRef.current = null;
+          latestCoordinatesRef.current = null;
 
           if (active && scrollAdjustedTranslate) {
             const {cancelDrop} = latestProps.current;
@@ -611,6 +694,10 @@ export const DndContext = memo(function DndContext({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [overId]
   );
+
+  useIsomorphicLayoutEffect(() => {
+    resolveDropStateRef.current = resolveDropState;
+  });
 
   useIsomorphicLayoutEffect(() => {
     sensorContext.current = {
