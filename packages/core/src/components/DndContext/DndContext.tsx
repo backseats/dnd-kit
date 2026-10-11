@@ -147,6 +147,32 @@ function isKeyboardSensor(Sensor: Sensor<any>) {
   );
 }
 
+function areCollisionsEqual(
+  a: Collision[] | null,
+  b: Collision[] | null
+): boolean {
+  if (a === b) {
+    return true;
+  }
+
+  if (a === null || b === null || a.length !== b.length) {
+    return false;
+  }
+
+  for (let i = 0; i < a.length; i++) {
+    if (
+      a[i].id !== b[i].id ||
+      a[i].data?.value !== b[i].data?.value ||
+      // A re-registered or toggled droppable must still be reflected
+      a[i].data?.droppableContainer !== b[i].data?.droppableContainer
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 enum Status {
   Uninitialized,
   Initializing,
@@ -329,7 +355,7 @@ export const DndContext = memo(function DndContext({
     ? getAdjustedRect(draggingNodeRect, modifiedTranslate)
     : null;
 
-  const collisions =
+  const nextCollisions =
     active && collisionRect
       ? collisionDetection({
           active,
@@ -339,6 +365,13 @@ export const DndContext = memo(function DndContext({
           pointerCoordinates,
         })
       : null;
+  // Keep the previous array when the result is shallow-equal, so that context
+  // consumers do not re-render on every move for an unchanged result.
+  const collisionsRef = useRef<Collision[] | null>(null);
+  const collisions = areCollisionsEqual(collisionsRef.current, nextCollisions)
+    ? collisionsRef.current
+    : nextCollisions;
+  collisionsRef.current = collisions;
   const overId = getFirstCollision(collisions, 'id');
   const [over, setOver] = useState<Over | null>(null);
 

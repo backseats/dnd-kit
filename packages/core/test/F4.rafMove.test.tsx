@@ -67,15 +67,16 @@ describe('F4: at most one drag-move render per animation frame', () => {
   it('renders once for ten pointermoves within a frame', () => {
     const {getRenders, onDragMove} = setup();
 
-    // Settle over B first so that `over` does not change during the frame
-    firePointer(document, 'pointermove', 140, 250);
+    // Settle partially overlapping A (and B) so that `over` does not change
+    // during the frame, but the collision values change with every move.
+    firePointer(document, 'pointermove', 80, 250);
     runFrames();
 
     const before = getRenders();
     onDragMove.mockClear();
 
     for (let i = 1; i <= 10; i++) {
-      firePointer(document, 'pointermove', 140 + i, 250);
+      firePointer(document, 'pointermove', 80 + i, 250);
     }
 
     // Nothing is committed until the frame fires
@@ -85,8 +86,8 @@ describe('F4: at most one drag-move render per animation frame', () => {
 
     expect(getRenders() - before).toBe(1);
     expect(onDragMove).toHaveBeenCalledTimes(1);
-    // 150 - 25 (initial pointer x)
-    expect(onDragMove.mock.calls[0][0].delta).toMatchObject({x: 125, y: 225});
+    // 90 - 25 (initial pointer x)
+    expect(onDragMove.mock.calls[0][0].delta).toMatchObject({x: 65, y: 225});
   });
 
   it('flushes the pending move before onDragEnd', () => {
