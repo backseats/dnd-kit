@@ -1,5 +1,9 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {useLatestValue, useLazyMemo} from '@dnd-kit/utilities';
+import {
+  useIsomorphicLayoutEffect,
+  useLatestValue,
+  useLazyMemo,
+} from '@dnd-kit/utilities';
 
 import {Rect} from '../../utilities/rect';
 import type {DroppableContainer, RectMap} from '../../store/types';
@@ -38,7 +42,13 @@ export function useDroppableMeasuring(
   containers: DroppableContainer[],
   {dragging, dependencies, config}: Arguments
 ) {
-  const [queue, setQueue] = useState<UniqueIdentifier[] | null>(null);
+  // Measurement requests are collected in a ref and signalled through a
+  // version counter, so that a request costs a single render. An empty list
+  // means that every container has to be measured.
+  const [version, setVersion] = useState(0);
+  const pendingRequest = useRef<UniqueIdentifier[] | null>(null);
+  const requestedVersion = useRef(0);
+  const queue = pendingRequest.current;
   const {frequency, measure, strategy} = config;
   const containersRef = useRef(containers);
   const disabled = isDisabled();
@@ -49,13 +59,19 @@ export function useDroppableMeasuring(
         return;
       }
 
-      setQueue((value) => {
-        if (value === null) {
-          return ids;
-        }
+      const pending = pendingRequest.current;
 
-        return value.concat(ids.filter((id) => !value.includes(id)));
-      });
+      if (pending === null) {
+        pendingRequest.current = ids.slice();
+      } else if (pending.length > 0) {
+        // A request to measure everything wins over a list of ids
+        pendingRequest.current =
+          ids.length === 0
+            ? []
+            : pending.concat(ids.filter((id) => !pending.includes(id)));
+      }
+
+      setVersion(++requestedVersion.current);
     },
     [disabledRef]
   );
@@ -124,7 +140,7 @@ export function useDroppableMeasuring(
 
       return previousValue;
     },
-    [containers, queue, dragging, disabled, measure]
+    [containers, version, dragging, disabled, measure]
   );
 
   useEffect(() => {
@@ -143,17 +159,13 @@ export function useDroppableMeasuring(
     [dragging, disabled]
   );
 
-  useEffect(
-    () => {
-      if (queue) {
-        // An empty queue is a request to measure every container, and it too
-        // has to be cleared once handled
-        setQueue(null);
-      }
-    },
-    //eslint-disable-next-line react-hooks/exhaustive-deps
-    [JSON.stringify(queue)]
-  );
+  // Once the render that handled the latest request has committed, the
+  // request is done
+  useIsomorphicLayoutEffect(() => {
+    if (version === requestedVersion.current) {
+      pendingRequest.current = null;
+    }
+  });
 
   useEffect(
     () => {

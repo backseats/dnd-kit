@@ -9,3 +9,5 @@ export {getClientRect, getTransformAgnosticClientRect} from './getRect';
 export {getWindowClientRect} from './getWindowClientRect';
 
 export {Rect} from './Rect';
+
+export {areRectsEqual} from './areRectsEqual';

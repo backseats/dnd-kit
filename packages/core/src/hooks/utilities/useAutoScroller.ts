@@ -67,6 +67,7 @@ export function useAutoScroller({
   threshold,
 }: Arguments) {
   const scrollIntent = useScrollIntent({delta, disabled: !enabled});
+  const scrollIntentKey = getScrollIntentKey(scrollIntent);
   const [setAutoScrollInterval, clearAutoScrollInterval] = useInterval();
   const scrollSpeed = useRef<Coordinates>({x: 0, y: 0});
   const scrollDirection = useRef<ScrollDirection>({x: 0, y: 0});
@@ -165,16 +166,17 @@ export function useAutoScroller({
       clearAutoScrollInterval,
       enabled,
       interval,
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      JSON.stringify(rect),
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      JSON.stringify(scrollIntent),
+      rect?.top,
+      rect?.bottom,
+      rect?.left,
+      rect?.right,
+      scrollIntentKey,
       setAutoScrollInterval,
       scrollableAncestors,
       sortedScrollableAncestors,
       scrollableAncestorRects,
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      JSON.stringify(threshold),
+      threshold?.x,
+      threshold?.y,
     ]
   );
 }
@@ -182,6 +184,16 @@ export function useAutoScroller({
 interface ScrollIntent {
   x: Record<Direction, boolean>;
   y: Record<Direction, boolean>;
+}
+
+/** A stable numeric key for a scroll intent, usable as a dependency. */
+function getScrollIntentKey(intent: ScrollIntent): number {
+  return (
+    (intent.x[Direction.Backward] ? 1 : 0) |
+    (intent.x[Direction.Forward] ? 2 : 0) |
+    (intent.y[Direction.Backward] ? 4 : 0) |
+    (intent.y[Direction.Forward] ? 8 : 0)
+  );
 }
 
 const defaultScrollIntent: ScrollIntent = {
