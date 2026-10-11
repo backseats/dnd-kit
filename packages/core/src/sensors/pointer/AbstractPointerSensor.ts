@@ -75,6 +75,7 @@ export class AbstractPointerSensor implements SensorInstance {
   private listeners: Listeners;
   private documentListeners: Listeners;
   private windowListeners: Listeners;
+  private initialWindowWidth: number;
 
   constructor(
     private props: AbstractPointerSensorProps,
@@ -90,12 +91,14 @@ export class AbstractPointerSensor implements SensorInstance {
     this.documentListeners = new Listeners(this.document);
     this.listeners = new Listeners(listenerTarget);
     this.windowListeners = new Listeners(getWindow(target));
+    this.initialWindowWidth = getWindow(target).innerWidth;
     this.initialCoordinates = getEventCoordinates(event) ?? defaultCoordinates;
     this.lastCoordinates = this.initialCoordinates;
     this.handleStart = this.handleStart.bind(this);
     this.handleMove = this.handleMove.bind(this);
     this.handleEnd = this.handleEnd.bind(this);
     this.handleCancel = this.handleCancel.bind(this);
+    this.handleResize = this.handleResize.bind(this);
     this.handleKeydown = this.handleKeydown.bind(this);
     this.removeTextSelection = this.removeTextSelection.bind(this);
 
@@ -117,7 +120,8 @@ export class AbstractPointerSensor implements SensorInstance {
       this.listeners.add(events.cancel.name, this.handleCancel);
     }
 
-    this.windowListeners.add(EventName.Resize, this.handleCancel);
+    this.windowListeners.add(EventName.Resize, this.handleResize);
+    this.windowListeners.add(EventName.OrientationChange, this.handleCancel);
     this.windowListeners.add(EventName.DragStart, preventDefault);
     this.windowListeners.add(EventName.VisibilityChange, this.handleCancel);
     this.windowListeners.add(EventName.ContextMenu, preventDefault);
@@ -280,6 +284,18 @@ export class AbstractPointerSensor implements SensorInstance {
       onAbort(this.props.active);
     }
     onCancel();
+  }
+
+  private handleResize() {
+    // Mobile browsers fire `resize` when the address bar collapses or expands,
+    // which only changes the viewport height. Only a change in width (or an
+    // `orientationchange`) cancels the drag. DndContext re-measures the
+    // droppable containers on height-only resizes.
+    if (
+      getWindow(this.props.event.target).innerWidth !== this.initialWindowWidth
+    ) {
+      this.handleCancel();
+    }
   }
 
   private handleKeydown(event: KeyboardEvent) {

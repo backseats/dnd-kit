@@ -2,6 +2,7 @@ export enum EventName {
   Click = 'click',
   DragStart = 'dragstart',
   Keydown = 'keydown',
+  OrientationChange = 'orientationchange',
   ContextMenu = 'contextmenu',
   Resize = 'resize',
   SelectionChange = 'selectionchange',

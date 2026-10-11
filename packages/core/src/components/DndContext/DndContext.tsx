@@ -609,6 +609,21 @@ export const DndContext = memo(function DndContext({
 
   useSensorSetup(sensors);
 
+  useEffect(() => {
+    if (!isInitialized || !activeNode) {
+      return;
+    }
+
+    const win = getWindow(activeNode);
+    const handleResize = () => measureDroppableContainers();
+
+    // Resizes that do not cancel the drag (see AbstractPointerSensor) may still
+    // have moved the droppable containers, so they need to be measured again.
+    win.addEventListener('resize', handleResize);
+
+    return () => win.removeEventListener('resize', handleResize);
+  }, [isInitialized, activeNode, measureDroppableContainers]);
+
   useIsomorphicLayoutEffect(() => {
     if (activeNodeRect && status === Status.Initializing) {
       setStatus(Status.Initialized);
