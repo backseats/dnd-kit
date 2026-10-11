@@ -61,6 +61,7 @@ import {
   getFirstCollision,
   rectIntersection,
 } from '../../utilities';
+import {teardownSensor} from '../../sensors/teardown';
 import {applyModifiers, Modifiers} from '../../modifiers';
 import type {Collision} from '../../utilities/algorithms';
 import type {Active, Over} from '../../store/types';
@@ -608,6 +609,18 @@ export const DndContext = memo(function DndContext({
   );
 
   useSensorSetup(sensors);
+
+  // If DndContext unmounts mid-drag, detach the active sensor's listeners
+  // without invoking any user callbacks (`onDragEnd` / `onDragCancel` do not
+  // fire: the tree they would report into is gone).
+  useEffect(
+    () => () => {
+      teardownSensor(activeSensorRef.current);
+      activeSensorRef.current = null;
+      activeRef.current = null;
+    },
+    []
+  );
 
   useEffect(() => {
     if (!isInitialized || !activeNode) {

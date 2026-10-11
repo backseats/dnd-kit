@@ -15,6 +15,7 @@ import {
 import {scrollIntoViewIfNeeded} from '../../utilities/scroll';
 import {EventName} from '../events';
 import {Listeners} from '../utilities';
+import {registerSensorTeardown} from '../teardown';
 import type {
   Activators,
   SensorInstance,
@@ -54,7 +55,12 @@ export class KeyboardSensor implements SensorInstance {
     this.handleKeyDown = this.handleKeyDown.bind(this);
     this.handleCancel = this.handleCancel.bind(this);
 
-    this.attach();
+    const keydownTimeout = this.attach();
+
+    registerSensorTeardown(this, () => {
+      clearTimeout(keydownTimeout);
+      this.detach();
+    });
   }
 
   private attach() {
@@ -63,7 +69,9 @@ export class KeyboardSensor implements SensorInstance {
     this.windowListeners.add(EventName.Resize, this.handleCancel);
     this.windowListeners.add(EventName.VisibilityChange, this.handleCancel);
 
-    setTimeout(() => this.listeners.add(EventName.Keydown, this.handleKeyDown));
+    return setTimeout(() =>
+      this.listeners.add(EventName.Keydown, this.handleKeyDown)
+    );
   }
 
   private handleStart() {

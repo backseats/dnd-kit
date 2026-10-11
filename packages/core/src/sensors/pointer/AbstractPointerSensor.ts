@@ -13,6 +13,7 @@ import {
 } from '../utilities';
 import {EventName, preventDefault, stopPropagation} from '../events';
 import {KeyboardCode} from '../keyboard';
+import {registerSensorTeardown} from '../teardown';
 import type {SensorInstance, SensorProps, SensorOptions} from '../types';
 import type {Coordinates, DistanceMeasurement} from '../../types';
 
@@ -103,6 +104,7 @@ export class AbstractPointerSensor implements SensorInstance {
     this.removeTextSelection = this.removeTextSelection.bind(this);
 
     this.attach();
+    registerSensorTeardown(this, () => this.detach());
   }
 
   private attach() {
