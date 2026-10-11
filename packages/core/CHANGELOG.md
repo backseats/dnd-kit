@@ -1,5 +1,20 @@
 # @dnd-kit/core
 
+## 6.3.1-chonks.1
+
+Chonks fork of `@dnd-kit/core@6.3.1`. No public API or type changes.
+
+### Patch Changes
+
+- **F1: drop target matches the latest collision.** `onDragEnd`, `onDragCancel` and `cancelDrop` now receive `over`, `collisions` and `delta` computed synchronously from the latest coordinates delivered by the sensor (including the final `pointerup` / `touchend` coordinates), instead of React state that may not have committed yet. A release that lands before the previous move was rendered no longer reports the previous droppable (or `null`). `onDragOver` and `isOver` update as before.
+- **F2: do not cancel drags on height-only resizes.** `PointerSensor`, `MouseSensor` and `TouchSensor` cancel on `resize` only when `window.innerWidth` changed, or on `orientationchange`. Height-only resizes (for example the iOS Safari address bar collapsing) keep the drag alive and re-measure the droppable containers.
+- **F3: tear down the active sensor on unmount.** When `DndContext` unmounts mid-drag, the active sensor's window/document listeners (and pending timers) are detached. Teardown does **not** fire `onDragEnd` / `onDragCancel`: the tree they would report into is gone.
+- **F4: at most one drag-move render per animation frame.** Pointer sensor moves are coalesced into one `DragMove` dispatch per `requestAnimationFrame`, flushed synchronously before `onDragEnd` / `onDragCancel`. Keyboard moves stay immediate, as does dispatch when `requestAnimationFrame` is unavailable.
+- **F5: stable `collisions`.** The `collisions` array keeps its previous reference when the new result has the same ids, `data.value` and droppable containers, so `useDndContext` consumers no longer re-render on every move.
+- **F6: cheaper droppable registration.** Droppables mounting in the same commit cost one map copy rather than one each. When the set of containers changes, only new containers (or ones whose node changed) are measured; toggling `disabled` re-measures nothing. An empty (measure everything) request no longer stays queued forever.
+- **F7: cheaper measuring loop.** A measurement request is a single render and no longer serializes its queue; `useRect` compares rects numerically and observes only the active node's parent (not the whole `document.body` subtree); `useAutoScroller` no longer uses `JSON.stringify` for effect dependencies.
+- **F8: throttled scroll updates and frame-aligned auto-scroll.** Scroll offset updates are coalesced to one per animation frame. Auto-scroll is driven by `requestAnimationFrame` and scales each step by the elapsed time, so the speed is unchanged; the `interval` option is the reference step duration. Auto-scroll is also stopped on unmount.
+
 ## 6.3.1
 
 ### Patch Changes
