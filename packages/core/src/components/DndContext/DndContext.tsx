@@ -61,6 +61,7 @@ import {
   getFirstCollision,
   rectIntersection,
 } from '../../utilities';
+import {KeyboardSensor} from '../../sensors/keyboard';
 import {teardownSensor} from '../../sensors/teardown';
 import {applyModifiers, Modifiers} from '../../modifiers';
 import type {Collision} from '../../utilities/algorithms';
@@ -140,6 +141,12 @@ interface DropState {
   over: Over | null;
 }
 
+function isKeyboardSensor(Sensor: Sensor<any>) {
+  return (
+    Sensor === KeyboardSensor || Sensor.prototype instanceof KeyboardSensor
+  );
+}
+
 enum Status {
   Uninitialized,
   Initializing,
@@ -190,6 +197,9 @@ export const DndContext = memo(function DndContext({
   // state), so that the drop target can be resolved from the freshest input.
   const initialCoordinatesRef = useRef<Coordinates | null>(null);
   const latestCoordinatesRef = useRef<Coordinates | null>(null);
+  // Pointer moves are coalesced to one `DragMove` dispatch per animation frame
+  const pendingMoveRef = useRef<Coordinates | null>(null);
+  const moveFrameRef = useRef<number | null>(null);
   const resolveDropStateRef = useRef<
     ((coordinates: Coordinates) => DropState | null) | null
   >(null);
@@ -485,10 +495,25 @@ export const DndContext = memo(function DndContext({
         },
         onMove(coordinates) {
           latestCoordinatesRef.current = coordinates;
-          dispatch({
-            type: Action.DragMove,
-            coordinates,
-          });
+
+          // Keyboard moves are discrete, and without `requestAnimationFrame`
+          // (SSR, some test environments) there is nothing to align with.
+          if (
+            isKeyboardSensor(Sensor) ||
+            typeof requestAnimationFrame !== 'function'
+          ) {
+            dispatch({type: Action.DragMove, coordinates});
+            return;
+          }
+
+          pendingMoveRef.current = coordinates;
+
+          if (moveFrameRef.current === null) {
+            moveFrameRef.current = requestAnimationFrame(() => {
+              moveFrameRef.current = null;
+              flushPendingMove();
+            });
+          }
         },
         onEnd: createHandler(Action.DragEnd),
         onCancel: createHandler(Action.DragCancel),
@@ -496,8 +521,26 @@ export const DndContext = memo(function DndContext({
 
       activeSensorRef.current = sensorInstance;
 
+      function flushPendingMove() {
+        if (moveFrameRef.current !== null) {
+          cancelAnimationFrame(moveFrameRef.current);
+          moveFrameRef.current = null;
+        }
+
+        const coordinates = pendingMoveRef.current;
+
+        if (coordinates) {
+          pendingMoveRef.current = null;
+          dispatch({type: Action.DragMove, coordinates});
+        }
+      }
+
       function createHandler(type: Action.DragEnd | Action.DragCancel) {
         return async function handler() {
+          // Make sure the final position is rendered, even if the frame that
+          // would have dispatched it has not fired yet.
+          flushPendingMove();
+
           const latestCoordinates = latestCoordinatesRef.current;
           // Resolve the drop target from the latest coordinates delivered by
           // the sensor, rather than from the last committed React state.
@@ -615,6 +658,12 @@ export const DndContext = memo(function DndContext({
   // fire: the tree they would report into is gone).
   useEffect(
     () => () => {
+      if (moveFrameRef.current !== null) {
+        cancelAnimationFrame(moveFrameRef.current);
+        moveFrameRef.current = null;
+      }
+
+      pendingMoveRef.current = null;
       teardownSensor(activeSensorRef.current);
       activeSensorRef.current = null;
       activeRef.current = null;
