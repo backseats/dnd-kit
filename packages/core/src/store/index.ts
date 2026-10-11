@@ -4,7 +4,7 @@ export {
   InternalContext,
   defaultInternalContext,
 } from './context';
-export {reducer, getInitialState} from './reducer';
+export {reducer, getInitialState, commitDroppableContainers} from './reducer';
 export type {
   Active,
   Data,

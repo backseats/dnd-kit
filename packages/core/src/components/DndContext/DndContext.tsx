@@ -27,6 +27,7 @@ import {
   InternalContextDescriptor,
   getInitialState,
   reducer,
+  commitDroppableContainers,
 } from '../../store';
 import {DndMonitorContext, useDndMonitorProvider} from '../DndMonitor';
 import {
@@ -804,6 +805,12 @@ export const DndContext = memo(function DndContext({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [overId]
   );
+
+  // Once committed, the containers map has been observed by consumers and
+  // must not be updated in place anymore
+  useIsomorphicLayoutEffect(() => {
+    commitDroppableContainers(droppableContainers);
+  }, [droppableContainers]);
 
   useIsomorphicLayoutEffect(() => {
     resolveDropStateRef.current = resolveDropState;

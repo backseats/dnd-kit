@@ -38,12 +38,18 @@ export function installPointerEventPolyfill() {
 
 installPointerEventPolyfill();
 
-/** jsdom returns zero-size rects. Stub `getBoundingClientRect` per element. */
+const rectSpies = new WeakMap<Element, jest.Mock>();
+
+/**
+ * jsdom returns zero-size rects. Stub `getBoundingClientRect` per element.
+ * Calling it again for the same element updates the rect and keeps the same
+ * spy (so call counts survive re-renders that re-run ref callbacks).
+ */
 export function stubRect(
   element: Element,
   {top, left, width, height}: TestRect
 ): jest.Mock {
-  const spy = jest.fn(() => ({
+  const implementation = () => ({
     top,
     left,
     width,
@@ -53,9 +59,16 @@ export function stubRect(
     x: left,
     y: top,
     toJSON() {},
-  }));
+  });
+  let spy = rectSpies.get(element);
 
-  (element as any).getBoundingClientRect = spy;
+  if (spy) {
+    spy.mockImplementation(implementation);
+  } else {
+    spy = jest.fn(implementation);
+    rectSpies.set(element, spy);
+    (element as any).getBoundingClientRect = spy;
+  }
 
   return spy;
 }

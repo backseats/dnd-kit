@@ -21,9 +21,11 @@ describe('F4: at most one drag-move render per animation frame', () => {
         frames.set(id, callback);
         return id;
       });
-    caf = jest.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
-      frames.delete(id);
-    });
+    caf = jest
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation((id) => {
+        frames.delete(id);
+      });
   });
 
   afterEach(() => {

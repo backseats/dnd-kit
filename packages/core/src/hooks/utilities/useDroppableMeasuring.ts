@@ -31,6 +31,9 @@ export interface DroppableMeasuring {
 
 const defaultValue: RectMap = new Map();
 
+// The node each container's `rect` ref was last measured against
+const measuredNodes = new WeakMap<DroppableContainer['rect'], HTMLElement>();
+
 export function useDroppableMeasuring(
   containers: DroppableContainer[],
   {dragging, dependencies, config}: Arguments
@@ -69,12 +72,19 @@ export function useDroppableMeasuring(
         containersRef.current !== containers ||
         queue != null
       ) {
+        // When only the set of containers changed (a droppable registered,
+        // unregistered or was toggled), the containers that were already
+        // measured against the same node keep their existing rect.
+        const measureAll =
+          !previousValue || previousValue === defaultValue || queue != null;
         const map: RectMap = new Map();
 
         for (let container of containers) {
           if (!container) {
             continue;
           }
+
+          const node = container.node.current;
 
           if (
             queue &&
@@ -87,10 +97,22 @@ export function useDroppableMeasuring(
             continue;
           }
 
-          const node = container.node.current;
+          if (
+            !measureAll &&
+            container.rect.current &&
+            measuredNodes.get(container.rect) === node
+          ) {
+            map.set(container.id, container.rect.current);
+            continue;
+          }
+
           const rect = node ? new Rect(measure(node), node) : null;
 
           container.rect.current = rect;
+
+          if (node) {
+            measuredNodes.set(container.rect, node);
+          }
 
           if (rect) {
             map.set(container.id, rect);
@@ -123,7 +145,9 @@ export function useDroppableMeasuring(
 
   useEffect(
     () => {
-      if (queue && queue.length > 0) {
+      if (queue) {
+        // An empty queue is a request to measure every container, and it too
+        // has to be cleared once handled
         setQueue(null);
       }
     },

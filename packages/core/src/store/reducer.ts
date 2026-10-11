@@ -2,6 +2,34 @@ import {Action, Actions} from './actions';
 import {DroppableContainersMap} from './constructors';
 import type {State} from './types';
 
+/**
+ * Maps created by the reducer that have not been committed yet. Consecutive
+ * register / unregister / disabled actions that are processed together (for
+ * example, when many droppables mount in the same commit) can safely update
+ * such a map in place, since nothing outside the reducer has observed it.
+ * This turns N registrations from N map copies into a single copy.
+ */
+const uncommittedContainers = new WeakSet<DroppableContainersMap>();
+
+function getWritableContainers(
+  containers: DroppableContainersMap
+): DroppableContainersMap {
+  if (uncommittedContainers.has(containers)) {
+    return containers;
+  }
+
+  const copy = new DroppableContainersMap(containers);
+
+  uncommittedContainers.add(copy);
+
+  return copy;
+}
+
+/** Marks the containers map as observed: further updates must copy it. */
+export function commitDroppableContainers(containers: DroppableContainersMap) {
+  uncommittedContainers.delete(containers);
+}
+
 export function getInitialState(): State {
   return {
     draggable: {
@@ -57,7 +85,7 @@ export function reducer(state: State, action: Actions): State {
     case Action.RegisterDroppable: {
       const {element} = action;
       const {id} = element;
-      const containers = new DroppableContainersMap(state.droppable.containers);
+      const containers = getWritableContainers(state.droppable.containers);
       containers.set(id, element);
 
       return {
@@ -77,7 +105,7 @@ export function reducer(state: State, action: Actions): State {
         return state;
       }
 
-      const containers = new DroppableContainersMap(state.droppable.containers);
+      const containers = getWritableContainers(state.droppable.containers);
       containers.set(id, {
         ...element,
         disabled,
@@ -100,7 +128,7 @@ export function reducer(state: State, action: Actions): State {
         return state;
       }
 
-      const containers = new DroppableContainersMap(state.droppable.containers);
+      const containers = getWritableContainers(state.droppable.containers);
       containers.delete(id);
 
       return {
