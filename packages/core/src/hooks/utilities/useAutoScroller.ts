@@ -69,6 +69,10 @@ export function useAutoScroller({
   const scrollIntent = useScrollIntent({delta, disabled: !enabled});
   const scrollIntentKey = getScrollIntentKey(scrollIntent);
   const [setAutoScrollInterval, clearAutoScrollInterval] = useInterval();
+  const autoScrollFrame = useRef<number | null>(null);
+  const autoScrollInterval = useRef(interval);
+
+  autoScrollInterval.current = interval;
   const scrollSpeed = useRef<Coordinates>({x: 0, y: 0});
   const scrollDirection = useRef<ScrollDirection>({x: 0, y: 0});
   const rect = useMemo(() => {
@@ -87,18 +91,65 @@ export function useAutoScroller({
     }
   }, [activator, draggingRect, pointerCoordinates]);
   const scrollContainerRef = useRef<Element | null>(null);
-  const autoScroll = useCallback(() => {
+  const lastFrameTime = useRef<number | null>(null);
+  const autoScroll = useCallback((elapsedRatio = 1) => {
     const scrollContainer = scrollContainerRef.current;
 
     if (!scrollContainer) {
       return;
     }
 
-    const scrollLeft = scrollSpeed.current.x * scrollDirection.current.x;
-    const scrollTop = scrollSpeed.current.y * scrollDirection.current.y;
+    const scrollLeft =
+      scrollSpeed.current.x * scrollDirection.current.x * elapsedRatio;
+    const scrollTop =
+      scrollSpeed.current.y * scrollDirection.current.y * elapsedRatio;
 
     scrollContainer.scrollBy(scrollLeft, scrollTop);
   }, []);
+  // Drives auto-scrolling from animation frames, scaling the scroll step by
+  // the time elapsed since the previous frame. `interval` is the reference
+  // step duration: the speed is the distance scrolled per `interval` ms.
+  const startAutoScroll = useCallback(() => {
+    if (typeof requestAnimationFrame !== 'function') {
+      clearAutoScrollInterval();
+      setAutoScrollInterval(autoScroll, autoScrollInterval.current);
+      return;
+    }
+
+    if (autoScrollFrame.current !== null) {
+      // Already running, the next frame picks up the new speed and direction
+      return;
+    }
+
+    const onFrame = (time: number) => {
+      const reference = autoScrollInterval.current;
+      const elapsed =
+        lastFrameTime.current === null
+          ? reference
+          : time - lastFrameTime.current;
+
+      lastFrameTime.current = time;
+      // Do not jump after a long stall
+      autoScroll(Math.min(elapsed, reference * 10) / reference);
+      autoScrollFrame.current = requestAnimationFrame(onFrame);
+    };
+
+    autoScrollFrame.current = requestAnimationFrame(onFrame);
+  }, [autoScroll, clearAutoScrollInterval, setAutoScrollInterval]);
+  const stopAutoScroll = useCallback(() => {
+    clearAutoScrollInterval();
+
+    if (autoScrollFrame.current !== null) {
+      cancelAnimationFrame(autoScrollFrame.current);
+      autoScrollFrame.current = null;
+    }
+
+    lastFrameTime.current = null;
+  }, [clearAutoScrollInterval]);
+
+  // Never leave a frame or interval running after unmounting
+  useEffect(() => stopAutoScroll, [stopAutoScroll]);
+
   const sortedScrollableAncestors = useMemo(
     () =>
       order === TraversalOrder.TreeOrder
@@ -110,7 +161,7 @@ export function useAutoScroller({
   useEffect(
     () => {
       if (!enabled || !scrollableAncestors.length || !rect) {
-        clearAutoScrollInterval();
+        stopAutoScroll();
         return;
       }
 
@@ -142,13 +193,11 @@ export function useAutoScroller({
         }
 
         if (speed.x > 0 || speed.y > 0) {
-          clearAutoScrollInterval();
-
           scrollContainerRef.current = scrollContainer;
-          setAutoScrollInterval(autoScroll, interval);
-
           scrollSpeed.current = speed;
           scrollDirection.current = direction;
+
+          startAutoScroll();
 
           return;
         }
@@ -156,14 +205,12 @@ export function useAutoScroller({
 
       scrollSpeed.current = {x: 0, y: 0};
       scrollDirection.current = {x: 0, y: 0};
-      clearAutoScrollInterval();
+      stopAutoScroll();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       acceleration,
-      autoScroll,
       canScroll,
-      clearAutoScrollInterval,
       enabled,
       interval,
       rect?.top,
@@ -171,7 +218,8 @@ export function useAutoScroller({
       rect?.left,
       rect?.right,
       scrollIntentKey,
-      setAutoScrollInterval,
+      startAutoScroll,
+      stopAutoScroll,
       scrollableAncestors,
       sortedScrollableAncestors,
       scrollableAncestorRects,

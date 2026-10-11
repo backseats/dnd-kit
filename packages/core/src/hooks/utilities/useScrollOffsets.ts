@@ -12,17 +12,22 @@ import type {Coordinates} from '../../types';
 type ScrollCoordinates = Map<HTMLElement | Window, Coordinates>;
 
 export function useScrollOffsets(elements: Element[]): Coordinates {
-  const [
-    scrollCoordinates,
-    setScrollCoordinates,
-  ] = useState<ScrollCoordinates | null>(null);
+  const [scrollCoordinates, setScrollCoordinates] =
+    useState<ScrollCoordinates | null>(null);
   const prevElements = useRef(elements);
 
-  // To-do: Throttle the handleScroll callback
-  const handleScroll = useCallback((event: Event) => {
-    const scrollingElement = getScrollableElement(event.target);
+  const pendingElements = useRef<Set<Element | (Window & typeof globalThis)>>(
+    new Set()
+  );
+  const frameId = useRef<number | null>(null);
+  const flushScrollUpdates = useCallback(() => {
+    frameId.current = null;
 
-    if (!scrollingElement) {
+    const scrollingElements = Array.from(pendingElements.current);
+
+    pendingElements.current.clear();
+
+    if (!scrollingElements.length) {
       return;
     }
 
@@ -31,14 +36,51 @@ export function useScrollOffsets(elements: Element[]): Coordinates {
         return null;
       }
 
-      scrollCoordinates.set(
-        scrollingElement,
-        getScrollCoordinates(scrollingElement)
-      );
+      for (const scrollingElement of scrollingElements) {
+        scrollCoordinates.set(
+          scrollingElement as HTMLElement | Window,
+          getScrollCoordinates(scrollingElement)
+        );
+      }
 
       return new Map(scrollCoordinates);
     });
   }, []);
+
+  // Scroll events are coalesced: at most one state update per animation frame
+  const handleScroll = useCallback(
+    (event: Event) => {
+      const scrollingElement = getScrollableElement(event.target);
+
+      if (!scrollingElement) {
+        return;
+      }
+
+      pendingElements.current.add(scrollingElement);
+
+      if (typeof requestAnimationFrame !== 'function') {
+        flushScrollUpdates();
+        return;
+      }
+
+      if (frameId.current === null) {
+        frameId.current = requestAnimationFrame(flushScrollUpdates);
+      }
+    },
+    [flushScrollUpdates]
+  );
+
+  useEffect(
+    () => () => {
+      if (frameId.current !== null) {
+        cancelAnimationFrame(frameId.current);
+        frameId.current = null;
+      }
+
+      pendingElements.current.clear();
+    },
+    []
+  );
 
   useEffect(() => {
     const previousElements = prevElements.current;

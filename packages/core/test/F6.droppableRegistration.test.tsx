@@ -66,7 +66,7 @@ describe('F6: droppable registration and measuring', () => {
     expect(onDragEnd.mock.calls[0][0].over?.id).toBe('d37');
   });
 
-  it('does not re-measure any droppable when one is disabled mid-drag', () => {
+  it('does not re-measure any droppable when one is disabled mid-drag', async () => {
     const spies: Record<string, jest.Mock> = {};
     let setDisabled: (value: boolean) => void = () => {};
 
@@ -100,14 +100,14 @@ describe('F6: droppable registration and measuring', () => {
     Object.values(spies).forEach((spy) => spy.mockClear());
     expect(Object.keys(spies)).toHaveLength(4);
 
-    act(() => setDisabled(true));
+    await act(async () => setDisabled(true));
 
     for (const id of Object.keys(spies)) {
       expect([id, spies[id].mock.calls.length]).toEqual([id, 0]);
     }
   });
 
-  it('measures only newly registered droppables, reusing existing rects', () => {
+  it('measures only newly registered droppables, reusing existing rects', async () => {
     const spies: Record<string, jest.Mock> = {};
     let addExtra: () => void = () => {};
 
@@ -138,7 +138,7 @@ describe('F6: droppable registration and measuring', () => {
     firePointer(document, 'pointermove', 150, 250);
     Object.values(spies).forEach((spy) => spy.mockClear());
 
-    act(() => addExtra());
+    await act(async () => addExtra());
 
     expect(spies.X.mock.calls.length).toBeGreaterThan(0);
     expect(spies.A.mock.calls.length).toBe(0);
